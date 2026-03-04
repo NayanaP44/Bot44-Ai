@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>project44 • Support Assistant (Mock)</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Top brand strip -->
+    <div class="topbar">
+      <div class="topbar__inner">
+        <div class="topbar__brand">
+          <div class="p44mark">p44</div>
+          <div>
+            <div class="topbar__title">Support Assistant</div>
+            <div class="topbar__sub">Internal • Zendesk sidebar style (mock)</div>
+          </div>
+        </div>
+
+        <div class="topbar__actions">
+          <div class="pill">
+            <span class="pill__dot"></span>
+            Demo Mode
+          </div>
+
+          <select id="ticketSelect" class="select select--top" title="Select mock ticket">
+            <option value="user_creation" selected>User Creation Request</option>
+            <option value="howto">How-To Question</option>
+            <option value="bug">Bug / Incident</option>
+            <option value="access">Access / Permissions</option>
+            <!-- Live ticket will be injected dynamically into this dropdown -->
+          </select>
+
+          <button id="btnRefresh" class="btn btn--primary">Refresh</button>
+          <button id="btnResetDemo" class="btn btn--ghost">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <!-- Left rail -->
+      <aside class="rail">
+        <button class="railItem railItem--active" data-tab="knowledge">
+          <span class="ico ico--spark"></span>
+          <span>Knowledge</span>
+        </button>
+        <button class="railItem" data-tab="widgets">
+          <span class="ico ico--grid"></span>
+          <span>Widgets</span>
+        </button>
+
+        <div class="railDivider"></div>
+
+        <div class="railHint">
+          <div class="railHint__t">Tip</div>
+          <div class="railHint__m">Pick a ticket type and show how the same UI handles any request.</div>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="main">
+        <!-- Knowledge tab -->
+        <section id="tab-knowledge" class="tabPanel tabPanel--active">
+          <div class="row2">
+            <div class="card">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--blue"><span class="icoSm icoSm--spark"></span></div>
+                  <div>
+                    <div class="card__title">Knowledge Assist</div>
+                    <div class="card__sub">Search KB / internal runbooks (mocked)</div>
+                  </div>
+                </div>
+
+                <select id="kbScope" class="select" title="KB Scope">
+                  <option value="all" selected>All Sources</option>
+                  <option value="helpcenter">Help Center</option>
+                  <option value="internal">Internal Runbooks</option>
+                </select>
+              </div>
+
+              <div class="kbSearch">
+                <input id="kbQuery" class="input" placeholder="Search: user creation / permissions / export / troubleshooting…" />
+                <button id="btnKbSearch" class="btn btn--secondary">Search</button>
+              </div>
+
+              <div id="kbResults" class="kbResults"></div>
+            </div>
+
+            <div class="card">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--indigo"><span class="icoSm icoSm--ask"></span></div>
+                  <div>
+                    <div class="card__title">ASK ME – p44</div>
+                    <div class="card__sub">Follow-up Q&A grounded in ticket + KB (mocked)</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="qa">
+                <input id="qaInput" class="input" placeholder='e.g., "What should I ask next?" or "Summarize what happened"' />
+                <button id="btnAsk" class="btn btn--primary">Ask</button>
+              </div>
+
+              <div id="qaAnswer" class="answerBox empty">Ask a question to see an answer.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Widgets tab -->
+        <section id="tab-widgets" class="tabPanel">
+          <div class="grid">
+            <!-- Ticket summary -->
+            <div class="card span2">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--blue"><span class="icoSm icoSm--doc"></span></div>
+                  <div>
+                    <div class="card__title">Ticket Summary</div>
+                    <div class="card__sub">Summary + classification</div>
+                  </div>
+                </div>
+
+                <div class="chips">
+                  <span class="chip" id="chipCategory">Category: —</span>
+                  <span class="chip" id="chipIntent">Intent: —</span>
+                  <span class="chip" id="chipSentiment">Sentiment: —</span>
+                  <span class="chip" id="chipPriority">Priority: —</span>
+                </div>
+              </div>
+
+              <div id="ticketSummary" class="summaryBox"></div>
+
+              <div class="row row--end">
+                <button id="btnGenSummary" class="btn btn--secondary">Generate Summary</button>
+              </div>
+            </div>
+
+            <!-- Jira -->
+            <div class="card">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--amber"><span class="icoSm icoSm--link"></span></div>
+                  <div>
+                    <div class="card__title">Zendesk–Jira Link Summary</div>
+                    <div class="card__sub">Linked issues status + notes (mocked)</div>
+                  </div>
+                </div>
+              </div>
+              <div id="jiraLinks" class="list"></div>
+              <div class="row row--end">
+                <button id="btnLoadJira" class="btn btn--ghost">Reload</button>
+              </div>
+            </div>
+
+            <!-- Seeker -->
+            <div class="card">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--green"><span class="icoSm icoSm--search"></span></div>
+                  <div>
+                    <div class="card__title">Seeker Bot</div>
+                    <div class="card__sub">Macros + similar tickets</div>
+                  </div>
+                </div>
+              </div>
+              <div id="seeker" class="list"></div>
+              <div class="row row--end">
+                <button id="btnRunSeeker" class="btn btn--ghost">Run Seeker</button>
+              </div>
+            </div>
+
+            <!-- Opening / Closure -->
+            <div class="card span2">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--indigo"><span class="icoSm icoSm--msg"></span></div>
+                  <div>
+                    <div class="card__title">Closure and Opening Message Bot</div>
+                    <div class="card__sub">Generate opening / closing customer message</div>
+                  </div>
+                </div>
+
+                <div class="row">
+                  <button id="btnOpening" class="btn btn--secondary">Opening</button>
+                  <button id="btnClosure" class="btn btn--secondary">Closure</button>
+                </div>
+              </div>
+              <div id="openCloseOut" class="answerBox empty">Click Opening or Closure to generate text.</div>
+            </div>
+
+            <!-- Side conversations -->
+            <div class="card span2">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--slate"><span class="icoSm icoSm--chat"></span></div>
+                  <div>
+                    <div class="card__title">Side Conversations Summary Bot</div>
+                    <div class="card__sub">Summarize internal side threads</div>
+                  </div>
+                </div>
+                <button id="btnSummSide" class="btn btn--ghost">Summarize</button>
+              </div>
+              <div id="sideConvo" class="sideWrap"></div>
+            </div>
+
+            <!-- Observe logs -->
+            <div class="card span2">
+              <div class="card__hdr">
+                <div class="card__hdrLeft">
+                  <div class="badgeIcon badgeIcon--red"><span class="icoSm icoSm--logs"></span></div>
+                  <div>
+                    <div class="card__title">Observe Bot</div>
+                    <div class="card__sub">Logs • audit trail • correlation IDs</div>
+                  </div>
+                </div>
+
+                <div class="row">
+                  <select id="logFilter" class="select">
+                    <option value="ALL" selected>All</option>
+                    <option value="AI">AI</option>
+                    <option value="KB">KB</option>
+                    <option value="ACTION">ACTION</option>
+                    <option value="API">API</option>
+                    <option value="ERROR">ERROR</option>
+                  </select>
+                  <button id="btnExportLogs" class="btn btn--ghost">Export</button>
+                  <button id="btnClearLogs" class="btn btn--ghost">Clear</button>
+                </div>
+              </div>
+
+              <div id="logs" class="logs"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Composer -->
+        <footer class="composer">
+          <div class="composer__hdr">
+            <div class="composer__left">
+              <div class="badgeIcon badgeIcon--blue"><span class="icoSm icoSm--pen"></span></div>
+              <div>
+                <div class="composer__title">AI Answer</div>
+                <div class="composer__sub">Generate a reply and insert into the ticket editor (demo)</div>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="lbl">Language</label>
+              <select id="lang" class="select">
+                <option value="en" selected>English</option>
+                <option value="es">Spanish (demo)</option>
+                <option value="fr">French (demo)</option>
+              </select>
+
+              <button id="btnGenReply" class="btn btn--primary">Generate Reply</button>
+              <button id="btnCopy" class="btn btn--ghost">Copy</button>
+            </div>
+          </div>
+
+          <textarea id="draft" class="textarea" placeholder="Draft response will appear here…"></textarea>
+
+          <div class="composer__bottom">
+            <div class="row">
+              <button id="btnInsert" class="btn btn--secondary">Insert (demo)</button>
+              <button id="btnShorten" class="btn btn--ghost">Shorten</button>
+              <button id="btnMoreFormal" class="btn btn--ghost">More formal</button>
+            </div>
+
+            <div class="muted small">
+              Demo-only: “Insert” shows a toast. In a Zendesk App, this would insert into the ticket editor.
+            </div>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <!-- bridge -->
+  <script src="./p44-zendesk-bridge.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
