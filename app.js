@@ -2,7 +2,7 @@
 // CONFIG
 // -----------------------------
 // ✅ Paste your Cloudflare Worker URL here:
-const AI_ENDPOINT = "https://YOUR-WORKER-SUBDOMAIN.workers.dev/analyze-ticket";
+const AI_ENDPOINT = "https://p44-ai-gateway.vercel.app/api/analyze-ticket";
 
 // -----------------------------
 // Mock Tickets (generic dataset)
