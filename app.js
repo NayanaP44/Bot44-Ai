@@ -1,11 +1,39 @@
-// -----------------------------
-// CONFIG
-// -----------------------------
-// ✅ Paste your Cloudflare Worker URL here:
-const AI_ENDPOINT = "https://nayanap44.github.io/Bot44-Ai/";
+// app.js (full) - copy / replace your existing file
+// Demo UI logic for Bot44-Ai with AI gateway integration (Vercel)
 
 // -----------------------------
-// Mock Tickets (generic dataset)
+// Config: update these
+// -----------------------------
+const AI_ENDPOINT = "https://p44-ai-gateway.vercel.app/api/analyze-ticket";
+// If you enabled demo-token auth on the gateway, put the token here for the demo UI to send.
+// For security, this token is visible to the frontend — okay for internal/demo use only.
+const DEMO_TOKEN_IN_UI = ""; // e.g. "p44demo_8f3a..."
+
+// -----------------------------
+// Utilities & Helpers
+// -----------------------------
+const $ = (id) => document.getElementById(id);
+
+function isoNow() { return new Date().toISOString(); }
+function fmt(ts) { return new Date(ts).toLocaleString(); }
+function rid() { return `REQ-${Math.random().toString(16).slice(2, 10).toUpperCase()}`; }
+function safeLower(s) { return (s || "").toLowerCase(); }
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+  setTimeout(() => el.classList.add("hidden"), 2200);
+}
+
+// -----------------------------
+// Mock dataset (same as your demo)
 // -----------------------------
 const TICKETS = {
   user_creation: {
@@ -98,24 +126,142 @@ const SIDE_CONVO_BY_TICKET = {
 // -----------------------------
 // Helpers
 // -----------------------------
-const $ = (id) => document.getElementById(id);
-
-function isoNow() { return new Date().toISOString(); }
-function fmt(ts) { return new Date(ts).toLocaleString(); }
-function rid() { return `REQ-${Math.random().toString(16).slice(2, 10).toUpperCase()}`; }
-function safeLower(s) { return (s || "").toLowerCase(); }
-
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+function extractEmail(text) {
+  return (text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) || [])[0] || "";
 }
 
-function toast(msg) {
-  const el = $("toast");
-  el.textContent = msg;
-  el.classList.remove("hidden");
-  setTimeout(() => el.classList.add("hidden"), 2200);
+function clip(text, n=220) {
+  const s = String(text || "").trim();
+  if (!s) return "—";
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+// -----------------------------
+// Summarization logic (non-LLM fallback)
+// -----------------------------
+function pickPrimaryText(ticket) {
+  const ev = ticket.events || [];
+  const first = ev[0]?.text || "";
+  const last = ev[ev.length - 1]?.text || "";
+  return `${ticket.subject || ""}\n${first}\n${last}`.trim();
+}
+
+function summarizeTicket(ticket) {
+  const intent = safeLower(ticket.classification?.intent || "");
+  const requester = ticket.requester || {};
+  const text = pickPrimaryText(ticket);
+
+  const header = ["AI Summary", "──────────"].join("\n");
+  const requesterLine = `Requester: ${requester.name || "—"} • Org: ${requester.org || "—"}`;
+
+  const email = extractEmail(text);
+  const browser = (text.match(/browser:\s*([A-Za-z0-9 ._-]+)/i) || [])[1]?.trim() || "";
+  const started = (text.match(/started\s+(today|yesterday|on\s+[A-Za-z]+|\d{4}-\d{2}-\d{2})/i) || [])[0] || "";
+
+  if (intent.includes("user creation")) {
+    const role = (text.match(/role:\s*([A-Za-z ]+)/i) || [])[1]?.trim() || "";
+    const region = (text.match(/region:\s*([A-Za-z0-9_-]+)/i) || [])[1]?.trim() || "";
+    const manager = (text.match(/manager:\s*([A-Za-z ]+)/i) || [])[1]?.trim() || "";
+    const costCenter = (text.match(/cost center:\s*([A-Za-z0-9_-]+)/i) || [])[1]?.trim() || "";
+
+    return [
+      header,
+      "Customer requests creating a new user for onboarding (STS).",
+      "",
+      requesterLine,
+      `Requested user: ${email || "—"}`,
+      `Role: ${role || "—"}   •   Region: ${region || "—"}`,
+      `Manager: ${manager || "—"}   •   Cost center: ${costCenter || "—"}`,
+      "",
+      "Risk / Guardrails:",
+      "• Admin role may require approvals",
+      "",
+      "Next actions:",
+      "• Confirm missing required fields (manager email if approvals apply)",
+      "• Submit to Access Ops workflow",
+      "• Confirm completion + share request ID"
+    ].join("\n");
+  }
+
+  if (intent.includes("how-to") || intent.includes("how to") || intent.includes("how-to assistance")) {
+    return [
+      header,
+      "Customer is asking how to perform a task in the product.",
+      "",
+      requesterLine,
+      `Request: ${clip(ticket.subject || (ticket.events?.[0]?.text || ""))}`,
+      "",
+      "Support response plan:",
+      "• Provide step-by-step navigation guidance + KB link",
+      "• Confirm required permissions (export/download access)",
+      "• Ask for screenshot if they can’t locate the option"
+    ].join("\n");
+  }
+
+  if (intent.includes("bug") || intent.includes("incident") || intent.includes("bug report")) {
+    return [
+      header,
+      "Customer reports a product issue impacting usage.",
+      "",
+      requesterLine,
+      `Impact: ${clip(ticket.subject)}`,
+      `Environment: ${browser || "—"}`,
+      `Timing: ${started || "—"}`,
+      "",
+      "Investigation checklist:",
+      "• Collect screenshot + console errors",
+      "• Request HAR file (if possible)",
+      "• Check feature flags / recent releases",
+      "",
+      "Next actions:",
+      "• Acknowledge impact + set update cadence",
+      "• Route to owning product team with artifacts"
+    ].join("\n");
+  }
+
+  if (intent.includes("access") || intent.includes("permissions")) {
+    const feature = (text.match(/enable\s+([A-Za-z0-9 _-]+)/i) || [])[1]?.trim() || "";
+    const targetUser = email || (text.match(/for\s+([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i) || [])[1] || "";
+
+    return [
+      header,
+      "Customer requests an access/permissions change.",
+      "",
+      requesterLine,
+      `Target user: ${targetUser || "—"}`,
+      `Requested access: ${feature || "—"}`,
+      "",
+      "Guardrails:",
+      "• Verify requester authorization / approvals if needed",
+      "• Confirm the correct role/permission template",
+      "",
+      "Next actions:",
+      "• Validate user + org mapping",
+      "• Apply permission set and ask user to re-login if required",
+      "• Confirm completion to requester"
+    ].join("\n");
+  }
+
+  const first = ticket.events?.[0]?.text || "";
+  const last = ticket.events?.[(ticket.events?.length || 1) - 1]?.text || "";
+  const latest = (last && last !== first) ? `• Latest: ${clip(last)}` : "";
+
+  return [
+    header,
+    "Customer support request captured.",
+    "",
+    requesterLine,
+    `Subject: ${clip(ticket.subject)}`,
+    "",
+    "Key details:",
+    `• ${clip(first)}`,
+    latest,
+    "",
+    "Next actions:",
+    "• Confirm missing context",
+    "• Recommend KB / runbook",
+    "• Draft customer response"
+  ].filter(Boolean).join("\n");
 }
 
 // -----------------------------
@@ -124,12 +270,6 @@ function toast(msg) {
 let LOGS = [];
 let ACTIVE_KEY = "user_creation";
 let ACTIVE = TICKETS[ACTIVE_KEY];
-
-// Store latest AI outputs so buttons can use them
-let AI_CACHE = {
-  opening_message: null,
-  closure_message: null
-};
 
 function logEvent({ level="INFO", type="AI", message="", meta={} }) {
   LOGS.push({
@@ -177,7 +317,7 @@ function exportLogs() {
 }
 
 // -----------------------------
-// Rail Navigation
+// Rail Navigation (replaces tabs)
 // -----------------------------
 document.querySelectorAll(".railItem").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -203,8 +343,37 @@ function setChips(category, intent, sentiment, priority) {
 }
 
 function renderTicketSummaryEmpty() {
-  $("ticketSummary").innerHTML = `<div class="muted">Click <b>Generate Summary</b> or <b>Refresh</b> to populate summary for the selected ticket.</div>`;
+  $("ticketSummary").innerHTML = `<div class="muted">Click <b>Generate Summary</b> to populate summary for the selected ticket.</div>`;
   setChips("—","—","—","—");
+}
+
+/* =========================================================
+   Ticket Summary & AI integration
+   ========================================================= */
+function renderTicketSummary() {
+  const c = ACTIVE.classification;
+  setChips(c.category, c.intent, c.sentiment, c.priority);
+
+  const requester = `${ACTIVE.requester.name} (${ACTIVE.requester.email}) • Org: ${ACTIVE.requester.org}`;
+  const timeline = ACTIVE.events.map(e => `• ${new Date(e.ts).toLocaleString()} — ${e.by}: ${e.text}`).join("\n");
+  const aiSummary = summarizeTicket(ACTIVE);
+
+  $("ticketSummary").innerHTML = `
+    <div><b>Ticket Summary</b></div>
+    <div class="muted" style="margin-top:6px;">${escapeHtml(ACTIVE.subject)}</div>
+    <div class="muted" style="margin-top:6px;">${escapeHtml(requester)}</div>
+
+    <div style="margin-top:10px;"><b>AI Summary</b></div>
+    <pre style="margin-top:8px; border:1px solid #E3E8F2; border-radius:14px; padding:10px; background:#fff; overflow:auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;">${escapeHtml(aiSummary)}</pre>
+
+    <details style="margin-top:10px;">
+      <summary class="muted" style="cursor:pointer;">Show full timeline</summary>
+      <pre style="margin-top:8px; border:1px solid #E3E8F2; border-radius:14px; padding:10px; background:#fff; overflow:auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;">${escapeHtml(timeline)}</pre>
+    </details>
+  `;
+
+  logEvent({ type: "AI", message: "Generated ticket summary + classification (mock)", meta: { ...c } });
+  toast("Summary generated");
 }
 
 function renderJira() {
@@ -228,9 +397,46 @@ function renderJira() {
 
 function renderSeekerEmpty() {
   $("seeker").innerHTML = `
-    <div class="item"><div class="item__t">Suggested Macros</div><div class="item__m muted">Run Seeker or Refresh to get recommendations.</div></div>
-    <div class="item"><div class="item__t">Similar Tickets</div><div class="item__m muted">Run Seeker or Refresh to list similar tickets.</div></div>
+    <div class="item"><div class="item__t">Suggested Macros</div><div class="item__m muted">Run Seeker to get recommendations.</div></div>
+    <div class="item"><div class="item__t">Similar Tickets</div><div class="item__m muted">Run Seeker to list similar tickets.</div></div>
   `;
+}
+
+function runSeeker() {
+  const intent = ACTIVE.classification.intent;
+  const isUserCreation = safeLower(intent).includes("user creation");
+
+  const macros = isUserCreation
+    ? "• Confirm required fields (name/email/role/region)\n• Mention approval process for Admin\n• Provide confirmation + requestId"
+    : safeLower(intent).includes("bug")
+      ? "• Acknowledge impact\n• Gather artifacts (HAR/console/screenshot)\n• Provide workaround if available\n• Set expectation + next update"
+      : safeLower(intent).includes("access")
+        ? "• Confirm target user email\n• Validate authorization/approvals\n• Apply permission set\n• Ask user to re-login"
+        : "• Acknowledge request\n• Provide steps\n• Ask for confirmation";
+
+  const items = [
+    {
+      t: "Suggested Macros",
+      m: macros,
+      kvs: ["Macro: Acknowledge", "Macro: Next Steps", isUserCreation ? "Macro: Approval Needed" : "Macro: Gather Details"]
+    },
+    {
+      t: "Similar Tickets",
+      m: "• Similar ticket suggestions are mocked here.\n• Later: search by org/requester/tags.",
+      kvs: [`Intent: ${intent}`, `Org: ${ACTIVE.requester.org}`]
+    }
+  ];
+
+  $("seeker").innerHTML = items.map(x => `
+    <div class="item">
+      <div class="item__t">${escapeHtml(x.t)}</div>
+      <div class="item__m" style="white-space:pre-wrap;">${escapeHtml(x.m)}</div>
+      <div class="item__kvs">${x.kvs.map(k => `<span class="kv">${escapeHtml(k)}</span>`).join("")}</div>
+    </div>
+  `).join("");
+
+  logEvent({ type: "AI", message: "Seeker recommendations generated (mock)", meta: { intent } });
+  toast("Seeker ran");
 }
 
 function renderSideConvo() {
@@ -241,6 +447,24 @@ function renderSideConvo() {
       <div class="msg__txt">${escapeHtml(m.text)}</div>
     </div>
   `).join("") : `<div class="muted">No side conversations found.</div>`;
+}
+
+function summarizeSideConvo() {
+  const msgs = SIDE_CONVO_BY_TICKET[ACTIVE_KEY] || [];
+  const summary =
+    msgs.length
+      ? `Side conversation summary:\n- ${msgs.map(m => m.text).join("\n- ")}`
+      : "Side conversation summary:\n- No side conversations available.";
+
+  $("sideConvo").insertAdjacentHTML("afterbegin", `
+    <div class="msg" style="border-style:dashed;">
+      <div class="msg__meta">Summary • ${escapeHtml(fmt(isoNow()))}</div>
+      <div class="msg__txt" style="white-space:pre-wrap;">${escapeHtml(summary)}</div>
+    </div>
+  `);
+
+  logEvent({ type: "AI", message: "Side conversations summarized (mock)" });
+  toast("Side convo summarized");
 }
 
 function renderKbResults(items) {
@@ -277,136 +501,8 @@ function kbSearch(query, scope) {
   });
 }
 
-// -----------------------------
-// ✅ AI: analyze ticket and hydrate ALL widgets
-// -----------------------------
-async function aiAnalyzeTicket(ticket) {
-  const res = await fetch(AI_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticket })
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `AI error: ${res.status}`);
-  }
-  return res.json();
-}
-
-function setOpenClose(text) {
-  $("openCloseOut").textContent = text;
-  $("openCloseOut").classList.remove("empty");
-}
-
-function setAnswerBox(text) {
-  $("qaAnswer").textContent = text;
-  $("qaAnswer").classList.remove("empty");
-}
-
-async function hydrateAllFromAI() {
-  try {
-    logEvent({ type: "AI", message: "AI analyze started", meta: { ticketId: ACTIVE.id } });
-    toast("Analyzing ticket with AI…");
-
-    const out = await aiAnalyzeTicket(ACTIVE);
-
-    // 1) classification/chips
-    const c = out.classification || ACTIVE.classification;
-    ACTIVE.classification = c;
-    setChips(c.category || "—", c.intent || "—", c.sentiment || "—", c.priority || "—");
-
-    // 2) ticket summary widget
-    const requester = `${ACTIVE.requester.name} (${ACTIVE.requester.email}) • Org: ${ACTIVE.requester.org}`;
-    const timeline = ACTIVE.events.map(e => `• ${new Date(e.ts).toLocaleString()} — ${e.by}: ${e.text}`).join("\n");
-
-    $("ticketSummary").innerHTML = `
-      <div><b>Ticket Summary</b></div>
-      <div class="muted" style="margin-top:6px;">${escapeHtml(ACTIVE.subject)}</div>
-      <div class="muted" style="margin-top:6px;">${escapeHtml(requester)}</div>
-
-      <div style="margin-top:10px;"><b>AI Summary</b></div>
-      <pre style="margin-top:8px; border:1px solid #E3E8F2; border-radius:14px; padding:10px; background:#fff; overflow:auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;">${escapeHtml(out.summary_markdown || "—")}</pre>
-
-      <details style="margin-top:10px;">
-        <summary class="muted" style="cursor:pointer;">Show full timeline</summary>
-        <pre style="margin-top:8px; border:1px solid #E3E8F2; border-radius:14px; padding:10px; background:#fff; overflow:auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;">${escapeHtml(timeline)}</pre>
-      </details>
-    `;
-
-    // 3) seeker widget
-    const macros = (out.seeker?.suggested_macros || []).map(x => `• ${x}`).join("\n");
-    const queries = (out.seeker?.similar_ticket_queries || []).map(x => `• ${x}`).join("\n");
-
-    $("seeker").innerHTML = `
-      <div class="item">
-        <div class="item__t">Suggested Macros</div>
-        <div class="item__m" style="white-space:pre-wrap;">${escapeHtml(macros || "• —")}</div>
-        <div class="item__kvs">
-          <span class="kv">AI-generated</span>
-          <span class="kv">Intent: ${escapeHtml(c.intent || "—")}</span>
-        </div>
-      </div>
-      <div class="item">
-        <div class="item__t">Similar Tickets</div>
-        <div class="item__m" style="white-space:pre-wrap;">${escapeHtml(queries || "• —")}</div>
-        <div class="item__kvs">
-          <span class="kv">Org: ${escapeHtml(ACTIVE.requester.org || "—")}</span>
-        </div>
-      </div>
-    `;
-
-    // 4) ASK ME default
-    if (out.ask_me_default) {
-      setAnswerBox(out.ask_me_default);
-    } else {
-      $("qaAnswer").textContent = "Ask a question to see an answer.";
-      $("qaAnswer").classList.add("empty");
-    }
-
-    // 5) Draft reply
-    if (out.draft_reply) {
-      $("draft").value = out.draft_reply;
-    }
-
-    // 6) Side conversation summary
-    if (out.side_convo_summary) {
-      $("sideConvo").insertAdjacentHTML("afterbegin", `
-        <div class="msg" style="border-style:dashed;">
-          <div class="msg__meta">AI Summary • ${escapeHtml(fmt(isoNow()))}</div>
-          <div class="msg__txt" style="white-space:pre-wrap;">${escapeHtml(out.side_convo_summary)}</div>
-        </div>
-      `);
-    }
-
-    // 7) Cache opening/closure
-    AI_CACHE.opening_message = out.opening_message || null;
-    AI_CACHE.closure_message = out.closure_message || null;
-
-    logEvent({
-      type: "AI",
-      message: "AI analyze complete",
-      meta: { intent: c.intent, priority: c.priority }
-    });
-    toast("AI populated all widgets ✅");
-  } catch (err) {
-    logEvent({ type: "ERROR", message: "AI analyze failed", meta: { error: String(err?.message || err) } });
-    toast("AI failed — check logs");
-  }
-}
-
-// -----------------------------
-// Opening / Closure (uses AI cache first)
-// -----------------------------
+// Opening / Closure
 function openingMessage() {
-  const t = AI_CACHE.opening_message;
-  if (t) {
-    setOpenClose(t);
-    logEvent({ type: "AI", message: "Generated opening message (AI)" });
-    toast("Opening generated");
-    return;
-  }
-
   const text =
 `Hi ${ACTIVE.requester.name},
 
@@ -416,21 +512,13 @@ To proceed, could you confirm any missing details (e.g., user email/org, affecte
 
 Best regards,
 Nayana`;
-
-  setOpenClose(text);
-  logEvent({ type: "AI", message: "Generated opening message (fallback)" });
+  $("openCloseOut").textContent = text;
+  $("openCloseOut").classList.remove("empty");
+  logEvent({ type: "AI", message: "Generated opening message (mock)" });
   toast("Opening generated");
 }
 
 function closureMessage() {
-  const t = AI_CACHE.closure_message;
-  if (t) {
-    setOpenClose(t);
-    logEvent({ type: "AI", message: "Generated closure message (AI)" });
-    toast("Closure generated");
-    return;
-  }
-
   const text =
 `Hi ${ACTIVE.requester.name},
 
@@ -440,15 +528,13 @@ If the issue persists or you need anything else, reply to this ticket and we’l
 
 Best regards,
 Nayana`;
-
-  setOpenClose(text);
-  logEvent({ type: "AI", message: "Generated closure message (fallback)" });
+  $("openCloseOut").textContent = text;
+  $("openCloseOut").classList.remove("empty");
+  logEvent({ type: "AI", message: "Generated closure message (mock)" });
   toast("Closure generated");
 }
 
-// -----------------------------
-// ASK ME (still your mocked logic for custom questions)
-// -----------------------------
+// ASK ME
 function askMe(question) {
   const q = safeLower(question);
   const intent = ACTIVE.classification.intent;
@@ -464,12 +550,44 @@ function askMe(question) {
   let ans = `Grounded on the current ticket:\n${basicFacts}\n\n`;
 
   if (q.includes("summarize") || q.includes("summary")) {
-    ans += "(Use Refresh / Generate Summary for AI summary above.)";
+    ans += summarizeTicket(ACTIVE);
     return ans;
   }
 
   if (q.includes("ask next") || q.includes("next question") || q.includes("clarify")) {
-    ans += $("qaAnswer").textContent || "Refresh to get AI suggestions.";
+    if (safeLower(intent).includes("user creation")) {
+      ans +=
+`Suggested clarifying questions:
+1) Confirm user’s first/last name and email
+2) Confirm role + region
+3) Confirm manager email (Admin approvals)
+4) Confirm cost center / access template`;
+      return ans;
+    }
+    if (safeLower(intent).includes("bug")) {
+      ans +=
+`Suggested clarifying questions:
+1) Exact URL/page? When did it start?
+2) Browser + version? Any extensions?
+3) HAR file + console logs?
+4) Does it reproduce for other users?`;
+      return ans;
+    }
+    if (safeLower(intent).includes("access")) {
+      ans +=
+`Suggested clarifying questions:
+1) Confirm target user email + org
+2) Which feature/role is needed?
+3) Is there an approval required?
+4) Any deadlines / urgency?`;
+      return ans;
+    }
+    ans +=
+`Suggested clarifying questions:
+1) What exact screen/step are they on?
+2) Any error message/screenshot?
+3) One user or many?
+4) Expected behavior?`;
     return ans;
   }
 
@@ -490,9 +608,61 @@ function askMe(question) {
   return ans;
 }
 
-// -----------------------------
-// Draft utilities (optional manual buttons)
-// -----------------------------
+// Reply generator
+function generateReply(lang) {
+  const { name } = ACTIVE.requester;
+  const intent = safeLower(ACTIVE.classification.intent);
+
+  let body =
+`Dear ${name},
+
+Thank you for reaching out to the project44 Support team.
+
+I understand your request regarding: "${ACTIVE.subject}".`;
+
+  if (intent.includes("user creation")) {
+    body += `
+
+We can proceed with creating the requested user. If Admin access is required, an approval step may apply. Once confirmed, I’ll share the request ID and next steps.`;
+  } else if (intent.includes("bug")) {
+    body += `
+
+To help us investigate, please share:
+1) A screenshot of the issue
+2) Browser version
+3) HAR file + console logs (if possible)
+
+Once received, we’ll continue troubleshooting.`;
+  } else if (intent.includes("access") || intent.includes("permissions")) {
+    body += `
+
+To proceed, please confirm:
+1) Target user email
+2) Required role/permission set
+3) Any approvals needed (if applicable)
+
+Once confirmed, we’ll apply the access update and ask the user to re-login if required.`;
+  } else {
+    body += `
+
+Here are the next steps:
+1) Please confirm the exact screen/flow you are using
+2) Share any error messages or screenshots
+3) Confirm if this impacts one user or multiple users`;
+  }
+
+  body += `
+
+Best regards,
+Nayana Ananda
+Customer Support`;
+
+  if (lang === "es") body = body.replace("Dear", "Hola").replace("Thank you for reaching out to the project44 Support team.", "Gracias por contactar al equipo de Soporte de project44.");
+  if (lang === "fr") body = body.replace("Dear", "Bonjour").replace("Thank you for reaching out to the project44 Support team.", "Merci d’avoir contacté l’équipe Support project44.");
+
+  return body;
+}
+
 function shortenDraft() {
   const { name } = ACTIVE.requester;
   return `Hi ${name},
@@ -515,21 +685,55 @@ Customer Support`;
 }
 
 // -----------------------------
-// Core UI
+// Core UI + AI Gateway Integration
 // -----------------------------
-async function refreshContext() {
-  logEvent({
-    type: "API",
-    message: "Fetched ticket context (mock)",
-    meta: { ticketId: ACTIVE.id, requester: ACTIVE.requester.email }
+
+/**
+ * callAI(ticket)
+ * - POSTs to AI_ENDPOINT with { ticket }
+ * - Handles demo token header if configured
+ * - Returns parsed JSON from the gateway or throws Error
+ */
+async function callAI(ticket) {
+  // Lightweight guard: limit payload size to prevent abuse in demo
+  const raw = JSON.stringify({ ticket });
+  if (raw.length > 15000) {
+    throw new Error("Ticket payload too large");
+  }
+
+  const headers = { "Content-Type": "application/json" };
+  if (DEMO_TOKEN_IN_UI) headers["x-demo-token"] = DEMO_TOKEN_IN_UI;
+
+  const res = await fetch(AI_ENDPOINT, {
+    method: "POST",
+    headers,
+    body: raw,
   });
 
+  const text = await res.text();
+  if (!res.ok) {
+    // Give helpful error
+    throw new Error(`Gateway ${res.status}: ${text}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error("Invalid JSON from gateway: " + text);
+  }
+}
+
+// -----------------------------
+// UI integration: wire Refresh to call AI
+// -----------------------------
+function renderKbResultsForLocalSearch() {
+  renderKbResults([]);
+}
+
+function refreshContext() {
+  logEvent({ type: "API", message: "Fetched ticket context (mock)", meta: { ticketId: ACTIVE.id, requester: ACTIVE.requester.email } });
   renderJira();
   renderSideConvo();
-
-  // ✅ this is the “read ticket → populate everything” step
-  await hydrateAllFromAI();
-
   toast(`Refreshed: ${ACTIVE.id}`);
 }
 
@@ -543,9 +747,6 @@ function resetDemoUI() {
   $("draft").value = "";
   $("kbQuery").value = "";
   $("qaInput").value = "";
-
-  AI_CACHE.opening_message = null;
-  AI_CACHE.closure_message = null;
 
   renderTicketSummaryEmpty();
   renderSeekerEmpty();
@@ -561,12 +762,149 @@ function setActiveTicket(key) {
 
   LOGS = [];
   resetDemoUI();
-  logEvent({ type: "API", message: "Switched active ticket", meta: { ticketId: ACTIVE.id, key } });
+  logEvent({ type: "API", message: "Switched active ticket (mock)", meta: { ticketId: ACTIVE.id, key } });
   toast(`Ticket set: ${ACTIVE.id}`);
 }
 
+// Attach AI-enabled refresh: when the user clicks Refresh, call the gateway
+$("btnRefresh").addEventListener("click", async () => {
+  try {
+    logEvent({ type: "AI", message: "Calling AI gateway…" });
+    toast("Calling AI…");
+
+    // Call the gateway
+    const ai = await callAI(ACTIVE);
+
+    // classification updates (fallback to original classification if missing)
+    const c = ai.classification || ACTIVE.classification || { category: "—", intent: "—", sentiment: "—", priority: "—" };
+    setChips(c.category, c.intent, c.sentiment, c.priority);
+
+    // Summary
+    const summaryText = ai.summary_markdown || ai.summary || ai.summary_text || summarizeTicket(ACTIVE);
+    $("ticketSummary").innerHTML = `
+      <div><b>Ticket Summary</b></div>
+      <div class="muted" style="margin-top:6px;">${escapeHtml(ACTIVE.subject)}</div>
+      <div class="muted" style="margin-top:6px;">${escapeHtml(ACTIVE.requester.name)} (${escapeHtml(ACTIVE.requester.email)}) • Org: ${escapeHtml(ACTIVE.requester.org)}</div>
+      <div style="margin-top:10px;"><b>AI Summary</b></div>
+      <pre style="margin-top:8px; border:1px solid #E3E8F2; border-radius:14px; padding:10px; background:#fff; overflow:auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;">${escapeHtml(summaryText)}</pre>
+    `;
+
+    // Draft
+    if (ai.draft_reply) $("draft").value = ai.draft_reply;
+
+    // Ask-me default
+    if (ai.ask_me_default) {
+      $("qaAnswer").textContent = ai.ask_me_default;
+      $("qaAnswer").classList.remove("empty");
+    }
+
+    // Seeker suggestions
+    if (ai.seeker && ai.seeker.suggested_macros) {
+      $("seeker").innerHTML = `<div class="item"><div class="item__t">Suggested Macros</div><div class="item__m" style="white-space:pre-wrap;">${escapeHtml(ai.seeker.suggested_macros.join("\n"))}</div></div>`;
+    }
+
+    // Side conversation summary
+    if (ai.side_convo_summary) {
+      $("sideConvo").insertAdjacentHTML("afterbegin", `
+        <div class="msg" style="border-style:dashed;">
+          <div class="msg__meta">AI Side Summary • ${escapeHtml(fmt(isoNow()))}</div>
+          <div class="msg__txt" style="white-space:pre-wrap;">${escapeHtml(ai.side_convo_summary)}</div>
+        </div>
+      `);
+    }
+
+    logEvent({ type: "AI", message: "AI success", meta: { intent: c.intent } });
+    toast("AI summary generated");
+  } catch (err) {
+    logEvent({ level: "ERROR", type: "ERROR", message: "AI failed. Check logs.", meta: { err: String(err.message || err) } });
+    toast("AI failed. Check logs.");
+    console.error("AI gateway error:", err);
+  }
+});
+
 // -----------------------------
-// Zendesk Live Ticket Integration
+// Additional UI wiring (existing handlers)
+// -----------------------------
+$("btnResetDemo").addEventListener("click", () => {
+  LOGS = [];
+  resetDemoUI();
+  logEvent({ type: "API", message: "Reset demo state" });
+  toast("Reset");
+});
+
+$("btnGenSummary").addEventListener("click", renderTicketSummary);
+$("btnLoadJira").addEventListener("click", renderJira);
+$("btnRunSeeker").addEventListener("click", runSeeker);
+$("btnOpening").addEventListener("click", openingMessage);
+$("btnClosure").addEventListener("click", closureMessage);
+$("btnSummSide").addEventListener("click", summarizeSideConvo);
+
+$("btnKbSearch").addEventListener("click", () => {
+  const q = $("kbQuery").value;
+  const scope = $("kbScope").value;
+  logEvent({ type: "KB", message: "KB search executed (mock)", meta: { query: q, scope } });
+  const results = kbSearch(q, scope);
+  renderKbResults(results);
+});
+
+$("btnAsk").addEventListener("click", () => {
+  const q = $("qaInput").value.trim();
+  if (!q) return;
+  logEvent({ type: "AI", message: "Follow-up question asked (mock)", meta: { question: q } });
+  const ans = askMe(q);
+  $("qaAnswer").textContent = ans;
+  $("qaAnswer").classList.remove("empty");
+});
+
+// Composer actions
+$("btnGenReply").addEventListener("click", () => {
+  const lang = $("lang").value;
+  const requestId = rid();
+  $("draft").value = generateReply(lang);
+  logEvent({ type: "AI", message: "Generated draft reply (mock)", meta: { requestId, lang } });
+  toast(`Draft generated • ${requestId}`);
+});
+
+$("btnShorten").addEventListener("click", () => {
+  if (!$("draft").value.trim()) return;
+  $("draft").value = shortenDraft();
+  logEvent({ type: "AI", message: "Shortened draft (mock)" });
+  toast("Draft shortened");
+});
+
+$("btnMoreFormal").addEventListener("click", () => {
+  if (!$("draft").value.trim()) return;
+  $("draft").value = formalDraft();
+  logEvent({ type: "AI", message: "Adjusted draft to formal tone (mock)" });
+  toast("Formal tone");
+});
+
+$("btnCopy").addEventListener("click", async () => {
+  const t = $("draft").value;
+  if (!t) return toast("Nothing to copy");
+  await navigator.clipboard.writeText(t);
+  logEvent({ type: "ACTION", message: "Copied draft to clipboard (mock)" });
+  toast("Copied");
+});
+
+$("btnInsert").addEventListener("click", () => {
+  const t = $("draft").value;
+  if (!t) return toast("Nothing to insert");
+  logEvent({ type: "ACTION", message: "Inserted reply into Zendesk editor (demo)", meta: { ticketId: ACTIVE.id } });
+  toast("Inserted (demo)");
+});
+
+// Observe controls
+$("logFilter").addEventListener("change", renderLogs);
+$("btnClearLogs").addEventListener("click", () => {
+  LOGS = [];
+  renderLogs();
+  toast("Logs cleared");
+});
+$("btnExportLogs").addEventListener("click", exportLogs);
+
+// -----------------------------
+// Live ticket bookmarklet integration
 // -----------------------------
 function classifyFromText(text) {
   const t = safeLower(text);
@@ -641,108 +979,16 @@ window.addEventListener("P44_ZD_TICKET_EVENT", (e) => {
 
   logEvent({ type: "API", message: "Loaded live Zendesk ticket via bookmarklet", meta: { ticketId: TICKETS[key].id } });
   toast(`Loaded Zendesk ticket #${TICKETS[key].id}`);
-
-  // ✅ auto-hydrate from AI for live ticket
-  hydrateAllFromAI();
 });
 
 // -----------------------------
-// Wire events
+// Init + UI helpers
 // -----------------------------
-$("ticketSelect").addEventListener("change", (e) => setActiveTicket(e.target.value));
-$("btnRefresh").addEventListener("click", refreshContext);
+function renderSeekerEmptyAndKbEmpty() {
+  renderSeekerEmpty();
+  renderKbResults([]);
+}
 
-$("btnResetDemo").addEventListener("click", () => {
-  LOGS = [];
-  resetDemoUI();
-  logEvent({ type: "API", message: "Reset demo state" });
-  toast("Reset");
-});
-
-// Generate Summary now just calls AI hydrate (same outcome)
-$("btnGenSummary").addEventListener("click", hydrateAllFromAI);
-
-$("btnLoadJira").addEventListener("click", renderJira);
-
-// Keep Seeker button for demo; it just calls AI hydrate too
-$("btnRunSeeker").addEventListener("click", hydrateAllFromAI);
-
-$("btnOpening").addEventListener("click", openingMessage);
-$("btnClosure").addEventListener("click", closureMessage);
-
-$("btnSummSide").addEventListener("click", () => {
-  // For now, side convo summary comes from AI via Refresh/Generate Summary.
-  // This button can still just run AI.
-  hydrateAllFromAI();
-});
-
-$("btnKbSearch").addEventListener("click", () => {
-  const q = $("kbQuery").value;
-  const scope = $("kbScope").value;
-  logEvent({ type: "KB", message: "KB search executed (mock)", meta: { query: q, scope } });
-  const results = kbSearch(q, scope);
-  renderKbResults(results);
-});
-
-$("btnAsk").addEventListener("click", () => {
-  const q = $("qaInput").value.trim();
-  if (!q) return;
-  logEvent({ type: "AI", message: "Follow-up question asked", meta: { question: q } });
-  const ans = askMe(q);
-  $("qaAnswer").textContent = ans;
-  $("qaAnswer").classList.remove("empty");
-});
-
-// Draft controls
-$("btnShorten").addEventListener("click", () => {
-  if (!$("draft").value.trim()) return;
-  $("draft").value = shortenDraft();
-  logEvent({ type: "AI", message: "Shortened draft" });
-  toast("Draft shortened");
-});
-
-$("btnMoreFormal").addEventListener("click", () => {
-  if (!$("draft").value.trim()) return;
-  $("draft").value = formalDraft();
-  logEvent({ type: "AI", message: "Adjusted draft to formal tone" });
-  toast("Formal tone");
-});
-
-// Generate Reply button: re-run AI and populate draft reply
-$("btnGenReply").addEventListener("click", async () => {
-  const requestId = rid();
-  await hydrateAllFromAI();
-  logEvent({ type: "AI", message: "Generated draft reply (AI)", meta: { requestId } });
-  toast(`Draft generated • ${requestId}`);
-});
-
-$("btnCopy").addEventListener("click", async () => {
-  const t = $("draft").value;
-  if (!t) return toast("Nothing to copy");
-  await navigator.clipboard.writeText(t);
-  logEvent({ type: "ACTION", message: "Copied draft to clipboard" });
-  toast("Copied");
-});
-
-$("btnInsert").addEventListener("click", () => {
-  const t = $("draft").value;
-  if (!t) return toast("Nothing to insert");
-  logEvent({ type: "ACTION", message: "Inserted reply into Zendesk editor (demo)", meta: { ticketId: ACTIVE.id } });
-  toast("Inserted (demo)");
-});
-
-// Observe controls
-$("logFilter").addEventListener("change", renderLogs);
-$("btnClearLogs").addEventListener("click", () => {
-  LOGS = [];
-  renderLogs();
-  toast("Logs cleared");
-});
-$("btnExportLogs").addEventListener("click", exportLogs);
-
-// -----------------------------
-// Init
-// -----------------------------
 function init() {
   renderTicketSummaryEmpty();
   renderSeekerEmpty();
@@ -750,6 +996,6 @@ function init() {
   renderJira();
   renderSideConvo();
   renderLogs();
-  logEvent({ type: "API", message: "UI loaded", meta: { ticketId: ACTIVE.id } });
+  logEvent({ type: "API", message: "UI loaded (mock)", meta: { ticketId: ACTIVE.id } });
 }
 init();
