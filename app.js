@@ -2,7 +2,7 @@
 // CONFIG
 // -----------------------------
 // ✅ Paste your Cloudflare Worker URL here:
-const AI_ENDPOINT = "https://p44-ai-gateway.vercel.app/api/analyze-ticket";
+const AI_ENDPOINT = "https://nayanap44.github.io/Bot44-Ai/";
 
 // -----------------------------
 // Mock Tickets (generic dataset)
